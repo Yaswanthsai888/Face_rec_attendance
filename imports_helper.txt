@@ -1,0 +1,6 @@
+import these packegs
+
+util, tkinter ,opencv-python,pillow ,face_recognition
+we can install these packages using pip with this line.
+
+for the smooth installation of face recognition. first, install vscode for C++ before where it will be around 4.5 GB.
