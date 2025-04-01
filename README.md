@@ -9,6 +9,7 @@ This is an advanced face recognition attendance application with a graphical use
 - User registration with face encoding
 - Detailed logging (system events and attendance)
 - Error handling and user-friendly interface
+- Eye blink anti-spoofing mechanism
 
 ## 🚀 Quick Start
 
@@ -30,6 +31,9 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 # Install dependencies
 pip install -r requirements.txt
 
+# Download facial landmark predictor
+python download_landmarks.py
+
 # Run demo setup
 python demo_setup.py
 
@@ -42,12 +46,14 @@ python facemain.py
 ### Demo Features
 - Pre-configured demo users
 - Simulated face recognition
+- Eye blink anti-spoofing mechanism
 - Walkthrough of key features
 
 ### How to Use the Demo
 1. Run `demo_setup.py` to create demo profiles
 2. Launch the application
 3. Try registering and logging in with demo users
+4. Observe eye blink verification during login
 
 ## 📸 Screenshots
 ### Screenshots
@@ -59,13 +65,21 @@ python facemain.py
 
 ## 🛠 Technical Details
 - Face Recognition: Using Dlib's face_recognition
+- Anti-Spoofing: Eye blink detection
 - GUI: Tkinter
 - Video Capture: OpenCV
 
 ## 🔒 Security
 - Local face encoding storage
 - No cloud data transmission
+- Eye blink verification
 - Minimal personal information retention
+
+## 🔒 Anti-Spoofing Features
+- **Eye Blink Verification**: Prevents unauthorized access using static images
+- Requires user to blink during login process
+- Configurable blink detection parameters
+- Logs potential spoofing attempts
 
 ## 🤝 Contributing
 1. Fork the repository

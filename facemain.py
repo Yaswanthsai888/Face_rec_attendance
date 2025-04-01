@@ -1,120 +1,219 @@
 import numpy
 import util
+import os
 import os.path
-import subprocess
 import tkinter as tk
+from tkinter import messagebox, simpledialog
 import cv2
 from PIL import Image, ImageTk
+import datetime
+import logging
+import face_recognition
+import pickle
+
+# Configure logging
+logging.basicConfig(filename='attendance.log', level=logging.INFO, 
+                    format='%(asctime)s - %(levelname)s - %(message)s')
 
 class App:
     def __init__(self):
         self.main_window = tk.Tk()
-        self.main_window.geometry("1200x520+350+100")
+        self.main_window.title("Face Recognition Attendance System")
+        self.main_window.geometry("1200x620+350+100")
+        self.main_window.configure(bg='#f0f0f0')
 
-        self.login_button_main_window = util.get_button(self.main_window, 'login', 'dark violet', self.login)
-        self.login_button_main_window.place(x=750, y=300)
+        # Camera selection
+        self.camera_index = self._find_camera()
+        if self.camera_index is None:
+            messagebox.showerror("Error", "No camera found!")
+            self.main_window.quit()
+            return
 
-        self.register_new_user_button_main_window = util.get_button(self.main_window, 'register new user', 'violet',
-                                                                    self.register_new_user, fg='black')
-        self.register_new_user_button_main_window.place(x=750, y=400)
+        # UI Elements
+        self._create_ui_elements()
 
+        # Directories
+        self.db_dir = './images1'
+        self.log_path = './Attendance.csv'
+        os.makedirs(self.db_dir, exist_ok=True)
+
+        # Logging setup
+        if not os.path.exists(self.log_path):
+            with open(self.log_path, 'w') as f:
+                f.write("Timestamp,Name,Registration Number\n")
+
+        # Blink detection variables
+        self.blink_required = True
+        self.blink_detected = False
+        self.blink_attempts = 0
+        self.MAX_BLINK_ATTEMPTS = 3
+
+    def _find_camera(self):
+        """Find the first available camera."""
+        for i in range(3):  # Try first 3 camera indices
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                cap.release()
+                return i
+        return None
+
+    def _create_ui_elements(self):
+        # Webcam display
         self.webcam_label = util.get_img_label(self.main_window)
-        self.webcam_label.place(x=10, y=0, width=700, height=500)
+        self.webcam_label.place(x=10, y=10, width=700, height=500)
+
+        # Buttons with improved styling
+        button_frame = tk.Frame(self.main_window, bg='#f0f0f0')
+        button_frame.place(x=750, y=250)
+
+        self.login_button = util.get_button(
+            button_frame, 'Login', '#4CAF50', self.login, fg='white'
+        )
+        self.login_button.pack(pady=10)
+
+        self.register_button = util.get_button(
+            button_frame, 'Register New User', '#2196F3', self.register_new_user, fg='white'
+        )
+        self.register_button.pack(pady=10)
+
+        # Status and blink instruction label
+        self.status_label = tk.Label(
+            self.main_window, text="", bg='#f0f0f0', 
+            font=('Arial', 12), wraplength=300
+        )
+        self.status_label.place(x=750, y=450)
 
         self.add_webcam(self.webcam_label)
 
-        self.db_dir = './images1'
-        if not os.path.exists(self.db_dir):
-            os.mkdir(self.db_dir)
-
-        self.log_path = './Attendance.txt'
-
     def add_webcam(self, label):
-        if 'cap' not in self.__dict__:
-            self.cap = cv2.VideoCapture(2)
-
-        self._label = label
-        self.process_webcam()
+        try:
+            self.cap = cv2.VideoCapture(self.camera_index)
+            if not self.cap.isOpened():
+                raise IOError("Cannot open webcam")
+            
+            self._label = label
+            self.process_webcam()
+        except Exception as e:
+            logging.error(f"Webcam error: {e}")
+            messagebox.showerror("Camera Error", str(e))
 
     def process_webcam(self):
-        ret, frame = self.cap.read()
+        try:
+            ret, frame = self.cap.read()
+            if not ret:
+                raise IOError("Failed to capture frame")
 
-        self.most_recent_capture_arr = frame
-        img_ = cv2.cvtColor(self.most_recent_capture_arr, cv2.COLOR_BGR2RGB)
-        self.most_recent_capture_pil = Image.fromarray(img_)
-        imgtk = ImageTk.PhotoImage(image=self.most_recent_capture_pil)
-        self._label.imgtk = imgtk
-        self._label.configure(image=imgtk)
+            self.most_recent_capture_arr = frame
+            img_ = cv2.cvtColor(self.most_recent_capture_arr, cv2.COLOR_BGR2RGB)
+            self.most_recent_capture_pil = Image.fromarray(img_)
+            imgtk = ImageTk.PhotoImage(image=self.most_recent_capture_pil)
+            self._label.imgtk = imgtk
+            self._label.configure(image=imgtk)
 
-        self._label.after(20, self.process_webcam)
+            self._label.after(20, self.process_webcam)
+        except Exception as e:
+            logging.error(f"Webcam processing error: {e}")
+            self.status_label.config(text=f"Camera error: {e}", fg='red')
 
     def login(self):
-        unknown_img_path = './.tmp.jpg'
+        try:
+            # Capture and save temporary image
+            temp_img_path = os.path.join(self.db_dir, 'temp_login.jpg')
+            cv2.imwrite(temp_img_path, self.most_recent_capture_arr)
 
-        cv2.imwrite(unknown_img_path, self.most_recent_capture_arr)
+            # Blink detection for anti-spoofing
+            if self.blink_required:
+                # Detect eye blink
+                blink_detected = util.detect_eye_blink(self.most_recent_capture_arr)
+                
+                if not blink_detected:
+                    self.blink_attempts += 1
+                    
+                    if self.blink_attempts >= self.MAX_BLINK_ATTEMPTS:
+                        self.status_label.config(
+                            text="Multiple failed blink attempts. Possible spoofing detected!", 
+                            fg='red'
+                        )
+                        logging.warning("Potential spoofing attempt detected")
+                        return
+                    
+                    self.status_label.config(
+                        text=f"Please blink to verify. Attempt {self.blink_attempts}/{self.MAX_BLINK_ATTEMPTS}", 
+                        fg='orange'
+                    )
+                    return
+                
+                # Reset blink tracking
+                self.blink_attempts = 0
+                self.blink_detected = True
 
-        output = str(subprocess.check_output(['face_recognition', self.db_dir, unknown_img_path], shell=True))
-        name = output.split(',')[1][:-5]
+            # Recognize face
+            result = util.recognize(self.most_recent_capture_arr, self.db_dir)
 
-        if name in ['unknown_person', 'no_persons_found']:
-            util.msg_box('Oops...', 'Unknown user. Please register new user or try again.')
-        else:
-            util.msg_box('Welcome back!', 'Welcome, {}.'.format(name))
-            with open(self.log_path, 'a') as f:
-                f.write('{},{}\n'.format(name, "Attendance"))  # Provide two arguments, name and "Attendance"
-        os.remove(unknown_img_path)
+            if result == 'no_persons_found':
+                self.status_label.config(text="No face detected", fg='red')
+                logging.warning("Login attempt: No face detected")
+            elif result == 'unknown_person':
+                self.status_label.config(text="Unknown person", fg='orange')
+                logging.info("Login attempt: Unknown person")
+            else:
+                # Successful recognition
+                name = result
+                timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                # Log attendance
+                with open(self.log_path, 'a') as f:
+                    f.write(f"{timestamp},{name},Attended\n")
+                
+                self.status_label.config(text=f"Welcome, {name}!", fg='green')
+                logging.info(f"Successful login: {name}")
+
+            # Clean up temporary image
+            os.remove(temp_img_path)
+
+        except Exception as e:
+            logging.error(f"Login error: {e}")
+            self.status_label.config(text=f"Login error: {e}", fg='red')
 
     def register_new_user(self):
-        self.register_new_user_window = tk.Toplevel(self.main_window)
-        self.register_new_user_window.geometry("1200x520+370+120")
+        try:
+            # Open registration dialog
+            name = simpledialog.askstring("Registration", "Enter your name:")
+            if not name:
+                return
 
-        self.accept_button_register_new_user_window = util.get_button(self.register_new_user_window, 'Accept', 'green', self.accept_register_new_user)
-        self.accept_button_register_new_user_window.place(x=750, y=300)
+            reg_no = simpledialog.askstring("Registration", "Enter registration number:")
+            if not reg_no:
+                return
 
-        self.try_again_button_register_new_user_window = util.get_button(self.register_new_user_window, 'Try again', 'red', self.try_again_register_new_user)
-        self.try_again_button_register_new_user_window.place(x=750, y=400)
+            # Capture registration image
+            temp_reg_path = os.path.join(self.db_dir, f'{name}_{reg_no}.jpg')
+            cv2.imwrite(temp_reg_path, self.most_recent_capture_arr)
 
-        self.capture_label = util.get_img_label(self.register_new_user_window)
-        self.capture_label.place(x=10, y=0, width=700, height=500)
+            # Compute face encodings
+            face_encodings = face_recognition.face_encodings(
+                face_recognition.load_image_file(temp_reg_path)
+            )
 
-        self.add_img_to_label(self.capture_label)
+            if not face_encodings:
+                os.remove(temp_reg_path)
+                messagebox.showerror("Error", "No face detected in the image")
+                return
 
-        self.entry_text_register_new_user = util.get_entry_text(self.register_new_user_window)
-        self.entry_text_register_new_user.place(x=750, y=240)
+            # Save face encoding
+            encoding_path = os.path.join(self.db_dir, f'{name}_{reg_no}.pkl')
+            with open(encoding_path, 'wb') as f:
+                pickle.dump(face_encodings[0], f)
 
-        self.text_label_register_new_user = util.get_text_label(self.register_new_user_window, 'Please, \ninput username:')
-        self.text_label_register_new_user.place(x=750, y=160)
+            messagebox.showinfo("Success", f"User {name} registered successfully!")
+            logging.info(f"User registered: {name} ({reg_no})")
 
-        self.entry_text_register_new_user = util.get_entry_text(self.register_new_user_window)
-        self.entry_text_register_new_user.place(x=750, y=100)
-
-        self.text_label_register_new_user = util.get_text_label(self.register_new_user_window, 'Please, \ninput reg_no:')
-        self.text_label_register_new_user.place(x=750, y=20)
-
-    def try_again_register_new_user(self):
-        self.register_new_user_window.destroy()
-
-    def add_img_to_label(self, label):
-        imgtk = ImageTk.PhotoImage(image=self.most_recent_capture_pil)
-        label.imgtk = imgtk
-        label.configure(image=imgtk)
-
-        self.register_new_user_capture = self.most_recent_capture_arr.copy()
+        except Exception as e:
+            logging.error(f"Registration error: {e}")
+            messagebox.showerror("Error", str(e))
 
     def start(self):
         self.main_window.mainloop()
-
-    def accept_register_new_user(self):
-        name = self.entry_text_register_new_user.get(1.0, "end-1c")
-        reg_no = self.entry_text_register_new_user.get(1.0, "end-1c")
-
-        cv2.imwrite(os.path.join(self.db_dir, '{}.jpg'.format(name)), self.register_new_user_capture)
-
-        with open(self.log_path, 'a') as f:
-            f.write('{},{}\n'.format(name, reg_no))
-        util.msg_box('Success!', 'User was registered successfully!')
-
-        self.register_new_user_window.destroy()
 
 if __name__ == "__main__":
     app = App()
