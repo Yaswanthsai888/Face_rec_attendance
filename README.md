@@ -41,6 +41,45 @@ python demo_setup.py
 python facemain.py
 ```
 
+## 🚀 Installation Guide
+
+### Prerequisites
+- Python 3.8+
+- Webcam
+- Windows, macOS, or Linux
+
+### Dlib Installation Troubleshooting
+
+#### Common Installation Issues
+If you encounter problems installing Dlib, try these methods:
+
+1. **Automatic Installation Script**
+   ```bash
+   python install_dlib.py
+   ```
+
+2. **Manual Installation**
+   ```bash
+   pip install cmake scikit-build
+   pip install dlib
+   ```
+
+#### Potential Solutions
+- Ensure you have the latest pip and setuptools
+- Install Visual C++ Build Tools for Windows
+- Use Python 3.8 or 3.9 (recommended)
+
+### Troubleshooting
+- Check Python and pip versions
+- Verify system dependencies
+- Consult project issues on GitHub
+
+## 🔍 Debugging
+If installation fails:
+1. Update pip: `python -m pip install --upgrade pip`
+2. Install build tools
+3. Retry installation
+
 ## 🎬 Demo Overview
 
 ### Demo Features
